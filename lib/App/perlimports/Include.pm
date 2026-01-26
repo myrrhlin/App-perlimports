@@ -23,6 +23,8 @@ sub BUILD {
     flush_cache('is_function_call');
 }
 
+# this is a catalog of the @EXPORT's of the target module,
+# or @EXPORT_OK, or else whatever comes from "use Module;"
 has _explicit_exports => (
     is          => 'ro',
     isa         => HashRef,
@@ -175,8 +177,8 @@ sub _build_imports {
     for my $word ( @{ $self->_document->possible_imports } ) {
         next if exists $found{"$word"};
 
-        # No need to keep looking if we've found everything that can be
-        # imported
+        # stop if we've found everything that can be imported (every
+        # possible exported symbol is being used)
         last unless $self->_imports_remain( \%found );
 
         # We don't want (for instance) pragma names to be confused with
@@ -314,6 +316,7 @@ sub _build_imports {
         }
 
         for my $found (@found_import) {
+            # could have been imported by another Include
             if ( !$self->_is_already_imported($found) ) {
                 $found{$found}++;
             }
