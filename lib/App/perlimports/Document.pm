@@ -75,9 +75,11 @@ has _ignore_modules_pattern => (
     default  => sub { [] },
 );
 
+# list of PPI::Statement::Include (use, no, require)
+# (excluding pragmas, ignored modules, and 'use VERSION')
 has includes => (
     is          => 'ro',
-    isa         => ArrayRef [Object],
+    isa         => ArrayRef [Object],    # PPI::Statement::Include
     handles_via => 'Array',
     handles     => {
         all_includes => 'elements',
@@ -100,6 +102,7 @@ has _inspectors => (
     default => sub { +{} },
 );
 
+# catalog of variables seen in interpolated context (string, qr, et al)
 has interpolated_symbols => (
     is      => 'ro',
     isa     => HashRef,
@@ -107,6 +110,7 @@ has interpolated_symbols => (
     builder => '_build_interpolated_symbols',
 );
 
+# (lint mode only) whether to output json (or else console text)
 has json => (
     is      => 'ro',
     isa     => Bool,
@@ -124,6 +128,7 @@ has _json_encoder => (
     },
 );
 
+# are we processing in lint mode ? (otherwise edit mode)
 has lint => (
     is      => 'ro',
     isa     => Bool,
@@ -152,6 +157,10 @@ has _never_export_modules => (
     predicate => '_has_never_export_modules',
 );
 
+# catalog of symbols explicitly imported (by package), e.g.
+#  Carp => ['croak', ..], ...
+# in edit mode, this will be altered after processing (tidied_document)
+# to reflect what we think the import statement should be.
 has original_imports => (
     is          => 'ro',
     isa         => HashRef,
@@ -177,9 +186,11 @@ has ppi_document => (
     builder => '_build_ppi_document',
 );
 
+# list of tokens in the document that -could- have come from an import
+# (but most are keywords, built-ins, lexical vars, defined funcs, etc.)
 has possible_imports => (
     is      => 'ro',
-    isa     => ArrayRef [Object],
+    isa     => ArrayRef [Object],        # isa PPI:Token:Word, :Symbol, :Magic
     lazy    => 1,
     builder => '_build_possible_imports',
 );
@@ -217,6 +228,8 @@ has _sub_exporter_export_list => (
     builder => '_build_sub_exporter_export_list',
 );
 
+# catalog of the named subs defined, e.g.
+#   new => 1, ...
 has _sub_names => (
     is          => 'ro',
     isa         => HashRef,
@@ -428,9 +441,10 @@ sub _build_ppi_document {
 #     POSIX => [],
 # }
 #
-# The name is a bit of a misnomer. It starts out as a list of original imports,
-# but with each include that gets processed, this list also gets updated. We do
-# this so that we can keep track of what previous modules are really importing.
+# The name is a bit of a misnomer. In edit mode, it starts out as a list of 
+# original imports, but with each include that gets processed, this list gets
+# updated. We do this so that we can keep track of what previous modules
+# are really importing, avoiding duplicate imports.
 # Might not be bad to rename this.
 
 sub _build_original_imports {
@@ -887,7 +901,7 @@ sub _lint_or_tidy_document {
     my $self = shift;
 
     my $linter_error = 0;
-    my %processed;
+    my %processed;    # modules we changed/confirmed the use statement
 
 INCLUDE:
     foreach my $include ( $self->all_includes ) {
@@ -1202,5 +1216,31 @@ Returns true if document was linted without errors, otherwise false.
 =head2 tidied_document
 
 Returns a serialized PPI document with (hopefully) tidy import statements.
+
+=head1 ATTRIBUTES
+
+=over 4
+
+=item includes
+
+An arrayref of L<PPI::Statement::Include> statements found in the document,
+excluding pragmas, ignored modules, and 'use VERSION' statements.
+
+=item original_imports
+
+A hashref catalog of symbols imported from each package by a use statement,
+e.g.
+
+  { Carp => ['croak', ..], ... }
+
+In lint mode, this attribute is never altered.
+
+But the name is misleading, because in edit mode, when L<tidied_document>
+is called, with each include that gets processed, this list gets updated to
+what we think it should be.  We do this so that we can keep track of what
+previous modules are really importing, to avoid duplicate imports (same
+symbol name from different packages).
+
+=back
 
 =cut
