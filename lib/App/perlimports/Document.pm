@@ -108,6 +108,17 @@ has constants => (
     builder => '_build_constants',
 );
 
+has unknown_words => (
+    is          => 'ro',
+    isa         => ArrayRef [Object],  # PPI::Token::Word
+    handles_via => 'Array',
+    handles     => {
+        all_unknowns => 'elements',
+    },
+    lazy    => 1,
+    builder => '_build_unknowns',
+);
+
 has _inspectors => (
     is          => 'ro',
     isa         => HashRef [ Maybe [Object] ],
@@ -534,6 +545,42 @@ sub _build_possible_imports {
     $self->_set_constants(%const) if %const && ! $self->has_constants;
 
     return \@after;
+}
+
+# array of PPI::Token::Word that are not known to be defined.
+# not every unknown word, just the first occurrence of each.
+sub _build_unknowns {
+    my $self = shift;
+    my %unknown;
+
+    my %imported_symbol;
+    if (my %orig = %{ $self->original_imports }) {
+        foreach my $pack (keys %orig) {
+            next unless $orig{$pack};
+            next unless my @sym = @{ $orig{$pack} };
+            $imported_symbol{$_} = $pack for @sym;
+        }
+    }
+
+    # known package name used in class-method call already excluded.
+    # can't validate method names, but they were excluded already.
+
+    foreach my $word (@{ $self->possible_imports }) { # PPI:Element
+        # we're looking only for undefined functions
+        next unless $word->isa('PPI::Token::Word');
+
+        next if is_perl_bareword($word) || is_perl_builtin($word)
+            || is_perl_filehandle($word);
+
+        if (is_function_call($word)) {
+            next if $imported_symbol{ "$word" };
+            next if $self->is_constant_name( "$word" );
+        }
+
+        $unknown{ "$word" } ||= $word;
+    }
+    my @sorted = sort {"$a" cmp "$b"} values %unknown;
+    return \@sorted;
 }
 
 sub _build_ppi_document {
