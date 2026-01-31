@@ -88,6 +88,19 @@ has includes => (
     builder => '_build_includes',
 );
 
+# constant subs defined using 'use constant'
+has constants => (
+    is          => 'ro',
+    isa         => HashRef,
+    handles_via => 'Hash',
+    handles     => {
+        is_constant_name => 'exists',
+        all_constants => 'keys',
+    },
+    lazy    => 1,
+    builder => '_build_constants',
+);
+
 has _inspectors => (
     is          => 'ro',
     isa         => HashRef [ Maybe [Object] ],
@@ -387,6 +400,63 @@ sub _build_includes {
         }
     ) || [];
     ## use critic
+}
+
+sub _build_constants {
+    my $self = shift;
+
+    my @incs = @{ $self->_ppi_selection->find(sub {
+        $_[1]->isa('PPI::Statement::Include')
+        && $_[1]->module eq 'constant'
+    }) };
+
+    my %constant;
+    foreach my $inc (@incs) {
+        next unless my $data = $self->_parse_constant($inc);
+
+        # N.B. we never alter 'use constant' imports
+        $constant{ $data->{name} } = $data;
+    }
+
+    return \%constant;
+}
+
+# until we get a PPI::Statement::Include::Constant class
+sub _parse_constant {
+    my ($self, $stm) = @_;
+    return unless $stm->isa('PPI::Statement::Include')
+        && $stm->module eq 'constant';
+
+    # TODO handle hashref argument, e.g:
+    # use constant { FOO => 1, BAR => 3 };
+
+    my ($word, $op, @defn) = $stm->arguments;
+
+    my $expected = $op eq '=>' && $word->isa('PPI::Token::Word');
+    # so many weird edge cases. lets ignore them for now. YAGNI
+    # except... just to show how:
+    $expected ||= $word->isa('PPI::Token::Quote') &&
+        ($op eq ',' || $op eq '=>'); 
+
+    unless ($expected) {
+        $self->logger->error("failed to parse constant: $stm");
+        return;
+    }
+
+    my $name = $word->isa('PPI::Token::Quote') ? $word->string : "$word";
+
+    my %data = (
+        token => $word,
+        name  => $name,
+        definition => \@defn,
+    );
+    if (my $end = $stm->last_element) { # likely PPI:Token:Structure ';'
+        # TODO location data can become stale, fix this
+        my @endloc = ($end->location->[0], 1 + $end->location->[1]);
+        # point in file after which this function exists (compile time)
+        $data{end} = \@endloc;
+    }
+    return \%data;
 }
 
 sub _build_possible_imports {
@@ -1234,6 +1304,31 @@ in lint mode.  We do this so that we can keep track of what previous modules
 are really importing, avoiding both duplicate imports (same symbol name from
 different packages) and duplicate lint errors (reporting the same missing
 symbol in different file contexts).
+
+=item constants
+
+Hashref catalog of detected constants in the document. So the line:
+
+ use constant FIRST_IDX => 0;
+
+results in a corresponding entry in the constants hashref:
+
+ FIRST_IDX => {
+   name        => 'FIRST_IDX', # (plain string)
+   token       => 'FIRST_IDX', # (PPI::Token::Word usually)
+   definition  => [ PPI::Token.. ],
+   end         => [ $line1, $pos1 ],
+ },
+
+The C<end> is the (line, character) position of the next byte following the
+last token of the constant import statement. (Note: locations can become stale!)
+
+The C<name> field is useful when the constant was defined using atypical
+syntax (no fat arrow), since the token doesnt stringify the same:
+
+ use constant 'FIRST_IDX', 0;
+ # token eq "'FIRST_IDX'", # (PPI::Token::Quote::Single)
+ # name  eq 'FIRST_IDX',   # same as $token->string
 
 =back
 
