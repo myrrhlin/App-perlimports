@@ -1201,6 +1201,14 @@ INCLUDE:
 
     $self->_maybe_cache_inspectors;
 
+    if ($self->lint) {
+        my @unknown = @{ $self->unknown_words }; # PPI:Token:Word
+        if (@unknown) {
+            $linter_error = 1; # if $self->_some_feature_enabled;
+            $self->_warn_line_for_linter('does not appear to be defined', $_) for @unknown;
+        }
+    }
+
     # We need to do serialize in order to preserve HEREDOCs.
     # See https://metacpan.org/pod/PPI::Document#serialize
     return $self->lint ? !$linter_error : $self->_ppi_selection->serialize;
@@ -1220,6 +1228,39 @@ sub _elem_loc {
     $loc->{end}->{column} = length( $lines[-1] );
 
     return $loc;
+}
+
+sub _warn_line_for_linter {
+    my ($self, $reason, $elem) = @_;
+
+    my $name = $elem->isa('PPI::Token::Quote') ? $elem->string
+        : $elem->isa('PPI::Token::Word') ? $elem->content
+        : '';
+    my $stm = $elem->statement;
+
+    if ( $self->json ) {
+
+        my $json = {
+            filename   => $self->_filename,
+            location   => $self->_elem_loc($stm),
+            (name      => $name) x!! $name,
+            (statement => $stm->content) x!! $stm,
+            reason     => $reason,
+        };
+        $self->logger->error( $self->_json_encoder->encode($json) );
+    }
+    else {
+
+        my $justification = sprintf(
+            '❌ |%s| (%s) at %s line %i',
+            $name, $reason, $self->_filename, $elem->line_number
+        );
+        $self->logger->error($justification);
+        if ($stm) {
+            my $line = sprintf( "%04u %s", $stm->line_number, $stm->content );
+            $self->logger->error($line);
+        }
+    }
 }
 
 sub _warn_diff_for_linter {
