@@ -686,6 +686,11 @@ sub _is_already_imported {
     my $symbol    = shift;
     my $duplicate = 0;
 
+    if ( any {$_ eq $symbol} $self->_document->all_constants ) {
+        $self->logger->info("$symbol is defined as a constant");
+        return 1;
+    }
+
     foreach my $module (
         grep { $_ ne $self->module_name }
         keys %{ $self->_document->original_imports }
