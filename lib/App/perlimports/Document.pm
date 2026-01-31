@@ -996,8 +996,8 @@ INCLUDE:
                         $elem->content
                     );
                     $linter_error = 1;
-                    next INCLUDE;
                 }
+                next INCLUDE;
             }
 
             $self->logger->info("resetting imports for |$elem|");
