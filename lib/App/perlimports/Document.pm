@@ -461,7 +461,9 @@ sub _build_original_imports {
         my $found_for_include = _imports_for_include($include);
         if ($found_for_include) {
             if ( $imports{$pkg} ) {
-                push @{ $imports{$pkg} }, @{$found_for_include};
+                my %catalog = map { $_ => 1 } @{ $imports{$pkg} },
+                    @{$found_for_include};
+                $imports{$pkg} = [ sort keys %catalog ];
             }
             else {
                 $imports{$pkg} = $found_for_include;
@@ -880,6 +882,7 @@ sub linter_success {
 # Kind of on odd interface, but right now we return either a tidied document or
 # the result of linting. Could probably clean this up at some point, but I'm
 # not sure yet how much the linting will change.
+# N.B. In lint mode, we never modify the document.
 sub _lint_or_tidy_document {
     my $self = shift;
 
