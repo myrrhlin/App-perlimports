@@ -112,14 +112,14 @@ has module_name => (
     default => sub { shift->_include->module },
 );
 
-has _original_imports => (
+has _found_imports => (
     is          => 'ro',
     isa         => Maybe [ArrayRef],
-    init_arg    => 'original_imports',
+    init_arg    => 'found_imports',
     handles_via => 'Array',
     handles     => {
-        _all_original_imports => 'elements',
-        _has_original_imports => 'count',
+        _all_found_imports => 'elements',
+        _has_found_imports => 'count',
     },
 );
 
@@ -207,10 +207,10 @@ sub _build_imports {
 
         # Don't turn "use POSIX ();" into "use POSIX qw( sprintf );"
         # If it's a function and it's a builtin function and it's either not
-        # included in original_imports or original imports are not implicit
+        # included in found_imports or original imports are not implicit
         # then skip this.
-        if (   defined $self->_original_imports
-            && ( none { $_ eq $word } @{ $self->_original_imports } )
+        if (   defined $self->_found_imports
+            && ( none { $_ eq $word } @{ $self->_found_imports } )
             && $is_function_call
             && is_perl_builtin($word) ) {
             next;
@@ -368,16 +368,16 @@ sub _build_imports {
     # preserve it, rather than risk altering the behaviour of the module.
     if ( $self->_export_inspector->has_import_flags ) {
         for my $arg ( @{ $self->_export_inspector->import_flags } ) {
-            if ( defined $self->_original_imports
-                && ( any { $_ eq $arg } @{ $self->_original_imports } ) ) {
+            if ( defined $self->_found_imports
+                && ( any { $_ eq $arg } @{ $self->_found_imports } ) ) {
                 push @found, $arg;
             }
         }
     }
 
     @found = uniq _sort_symbols(@found);
-    if ( $self->_original_imports ) {
-        my @preserved = grep { m{\A[!_]} } @{ $self->_original_imports };
+    if ( $self->_found_imports ) {
+        my @preserved = grep { m{\A[!_]} } @{ $self->_found_imports };
         @found = uniq( @preserved, @found );
     }
     return \@found;
@@ -689,17 +689,14 @@ sub _is_already_imported {
 
     foreach my $module (
         grep { $_ ne $self->module_name }
-        keys %{ $self->_document->original_imports }
+        keys %{ $self->_document->found_imports }
     ) {
         $self->logger->debug(
             "checking $module for previous imports of $symbol");
         my @imports;
-        if (
-            is_plain_arrayref(
-                $self->_document->original_imports->{$module}
-            )
-        ) {
-            @imports = @{ $self->_document->original_imports->{$module} };
+        if ( is_plain_arrayref( $self->_document->found_imports->{$module} ) )
+        {
+            @imports = @{ $self->_document->found_imports->{$module} };
             $self->logger->debug(
                 'Explicit imports found: ' . Dumper( [ sort @imports ] ) );
         }

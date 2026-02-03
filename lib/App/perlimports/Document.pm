@@ -161,15 +161,15 @@ has _never_export_modules => (
 #  Carp => ['croak', ..], ...
 # in edit mode, this will be altered after processing (tidied_document)
 # to reflect what we think the import statement should be.
-has original_imports => (
+has found_imports => (
     is          => 'ro',
     isa         => HashRef,
     handles_via => 'Hash',
     handles     => {
-        _reset_original_import => 'set',
+        _reset_found_import => 'set',
     },
     lazy    => 1,
-    builder => '_build_original_imports',
+    builder => '_build_found_imports',
 );
 
 has _padding => (
@@ -441,13 +441,12 @@ sub _build_ppi_document {
 #     POSIX => [],
 # }
 #
-# The name is a bit of a misnomer. In edit mode, it starts out as a list of 
+# In lint mode, it never changes.  In edit mode, it starts out as a list of
 # original imports, but with each include that gets processed, this list gets
 # updated. We do this so that we can keep track of what previous modules
 # are really importing, avoiding duplicate imports.
-# Might not be bad to rename this.
 
-sub _build_original_imports {
+sub _build_found_imports {
     my $self = shift;
 
     # We're missing requires which could be followed by an import.
@@ -773,9 +772,9 @@ sub _has_import_switches {
     # We will leave this case as broken for the time being. I'm not sure how
     # common that invocation is.
 
-    if ( exists $self->original_imports->{$module_name}
+    if ( exists $self->found_imports->{$module_name}
         && any { $_ =~ m{^[\-]} }
-        @{ $self->original_imports->{$module_name} || [] } ) {
+        @{ $self->found_imports->{$module_name} || [] } ) {
         return 1;
     }
     return 0;
@@ -931,12 +930,12 @@ INCLUDE:
         $self->logger->notice( '📦 ' . "Processing include: $include" );
 
         my $e = App::perlimports::Include->new(
-            document         => $self,
-            include          => $include,
-            logger           => $self->logger,
-            original_imports => $self->original_imports->{ $include->module },
-            pad_imports      => $self->_padding,
-            tidy_whitespace  => $self->_tidy_whitespace,
+            document        => $self,
+            include         => $include,
+            logger          => $self->logger,
+            found_imports   => $self->found_imports->{ $include->module },
+            pad_imports     => $self->_padding,
+            tidy_whitespace => $self->_tidy_whitespace,
         );
         my $elem;
         try {
@@ -1019,7 +1018,7 @@ INCLUDE:
 
             $self->logger->info("resetting imports for |$elem|");
 
-            # Now reset original_imports so that we can account for any changes
+            # Now reset found_imports so that we can account for any changes
             # when processing includes further down the list.
             my $doc = PPI::Document->new( \"$elem" );
 
@@ -1031,7 +1030,7 @@ INCLUDE:
                     = $doc->find(
                     sub { $_[1]->isa('PPI::Statement::Include') } );
 
-                $self->_reset_original_import(
+                $self->_reset_found_import(
                     $include->module,
                     _imports_for_include( $new_include->[0] )
                 );
@@ -1226,7 +1225,7 @@ Returns a serialized PPI document with (hopefully) tidy import statements.
 An arrayref of L<PPI::Statement::Include> statements found in the document,
 excluding pragmas, ignored modules, and 'use VERSION' statements.
 
-=item original_imports
+=item found_imports
 
 A hashref catalog of symbols imported from each package by a use statement,
 e.g.
@@ -1235,12 +1234,12 @@ e.g.
 
 In lint mode, this attribute is never altered.
 
-But the name is misleading, because in edit mode, when L<tidied_document>
-is called, with each include that gets processed, this list gets updated to
-what we think it should be.  We do this so that we can keep track of what
-previous modules are really importing, to avoid duplicate imports (same
-symbol name from different packages).
+In edit mode, when L<tidied_document> is called, with each include that gets
+processed, this list gets updated to what we think it should be.  We do this
+so that we can keep track of what previous modules are really importing, to
+avoid duplicate imports (same symbol name from different packages).
 
 =back
 
 =cut
+
