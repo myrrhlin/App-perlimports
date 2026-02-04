@@ -75,9 +75,11 @@ has _ignore_modules_pattern => (
     default  => sub { [] },
 );
 
+# list of PPI::Statement::Include (use, no, require)
+# (excluding pragmas, ignored modules, and 'use VERSION')
 has includes => (
     is          => 'ro',
-    isa         => ArrayRef [Object],
+    isa         => ArrayRef [Object],    # PPI::Statement::Include
     handles_via => 'Array',
     handles     => {
         all_includes => 'elements',
@@ -100,6 +102,7 @@ has _inspectors => (
     default => sub { +{} },
 );
 
+# catalog of variables seen in interpolated context (string, qr, et al)
 has interpolated_symbols => (
     is      => 'ro',
     isa     => HashRef,
@@ -107,6 +110,7 @@ has interpolated_symbols => (
     builder => '_build_interpolated_symbols',
 );
 
+# (lint mode only) whether to output json (or else console text)
 has json => (
     is      => 'ro',
     isa     => Bool,
@@ -124,6 +128,7 @@ has _json_encoder => (
     },
 );
 
+# are we processing in lint mode ? (otherwise edit mode)
 has lint => (
     is      => 'ro',
     isa     => Bool,
@@ -152,15 +157,19 @@ has _never_export_modules => (
     predicate => '_has_never_export_modules',
 );
 
-has original_imports => (
+# catalog of symbols explicitly imported (by package), e.g.
+#  Carp => ['croak', ..], ...
+# in edit mode, this will be altered after processing (tidied_document)
+# to reflect what we think the import statement should be.
+has found_imports => (
     is          => 'ro',
     isa         => HashRef,
     handles_via => 'Hash',
     handles     => {
-        _reset_original_import => 'set',
+        _reset_found_import => 'set',
     },
     lazy    => 1,
-    builder => '_build_original_imports',
+    builder => '_build_found_imports',
 );
 
 has _padding => (
@@ -177,9 +186,11 @@ has ppi_document => (
     builder => '_build_ppi_document',
 );
 
+# list of tokens in the document that -could- have come from an import
+# (but most are keywords, built-ins, lexical vars, defined funcs, etc.)
 has possible_imports => (
     is      => 'ro',
-    isa     => ArrayRef [Object],
+    isa     => ArrayRef [Object],        # isa PPI:Token:Word, :Symbol, :Magic
     lazy    => 1,
     builder => '_build_possible_imports',
 );
@@ -217,6 +228,8 @@ has _sub_exporter_export_list => (
     builder => '_build_sub_exporter_export_list',
 );
 
+# catalog of the named subs defined, e.g.
+#   new => 1, ...
 has _sub_names => (
     is          => 'ro',
     isa         => HashRef,
@@ -428,12 +441,12 @@ sub _build_ppi_document {
 #     POSIX => [],
 # }
 #
-# The name is a bit of a misnomer. It starts out as a list of original imports,
-# but with each include that gets processed, this list also gets updated. We do
-# this so that we can keep track of what previous modules are really importing.
-# Might not be bad to rename this.
+# In lint mode, it never changes.  In edit mode, it starts out as a list of
+# original imports, but with each include that gets processed, this list gets
+# updated. We do this so that we can keep track of what previous modules
+# are really importing, avoiding duplicate imports.
 
-sub _build_original_imports {
+sub _build_found_imports {
     my $self = shift;
 
     # We're missing requires which could be followed by an import.
@@ -759,9 +772,9 @@ sub _has_import_switches {
     # We will leave this case as broken for the time being. I'm not sure how
     # common that invocation is.
 
-    if ( exists $self->original_imports->{$module_name}
+    if ( exists $self->found_imports->{$module_name}
         && any { $_ =~ m{^[\-]} }
-        @{ $self->original_imports->{$module_name} || [] } ) {
+        @{ $self->found_imports->{$module_name} || [] } ) {
         return 1;
     }
     return 0;
@@ -887,7 +900,7 @@ sub _lint_or_tidy_document {
     my $self = shift;
 
     my $linter_error = 0;
-    my %processed;
+    my %processed;    # modules we changed/confirmed the use statement
 
 INCLUDE:
     foreach my $include ( $self->all_includes ) {
@@ -917,12 +930,12 @@ INCLUDE:
         $self->logger->notice( '📦 ' . "Processing include: $include" );
 
         my $e = App::perlimports::Include->new(
-            document         => $self,
-            include          => $include,
-            logger           => $self->logger,
-            original_imports => $self->original_imports->{ $include->module },
-            pad_imports      => $self->_padding,
-            tidy_whitespace  => $self->_tidy_whitespace,
+            document        => $self,
+            include         => $include,
+            logger          => $self->logger,
+            found_imports   => $self->found_imports->{ $include->module },
+            pad_imports     => $self->_padding,
+            tidy_whitespace => $self->_tidy_whitespace,
         );
         my $elem;
         try {
@@ -1005,7 +1018,7 @@ INCLUDE:
 
             $self->logger->info("resetting imports for |$elem|");
 
-            # Now reset original_imports so that we can account for any changes
+            # Now reset found_imports so that we can account for any changes
             # when processing includes further down the list.
             my $doc = PPI::Document->new( \"$elem" );
 
@@ -1017,7 +1030,7 @@ INCLUDE:
                     = $doc->find(
                     sub { $_[1]->isa('PPI::Statement::Include') } );
 
-                $self->_reset_original_import(
+                $self->_reset_found_import(
                     $include->module,
                     _imports_for_include( $new_include->[0] )
                 );
@@ -1203,4 +1216,30 @@ Returns true if document was linted without errors, otherwise false.
 
 Returns a serialized PPI document with (hopefully) tidy import statements.
 
+=head1 ATTRIBUTES
+
+=over 4
+
+=item includes
+
+An arrayref of L<PPI::Statement::Include> statements found in the document,
+excluding pragmas, ignored modules, and 'use VERSION' statements.
+
+=item found_imports
+
+A hashref catalog of symbols imported from each package by a use statement,
+e.g.
+
+  { Carp => ['croak', ..], ... }
+
+In lint mode, this attribute is never altered.
+
+In edit mode, when L<tidied_document> is called, with each include that gets
+processed, this list gets updated to what we think it should be.  We do this
+so that we can keep track of what previous modules are really importing, to
+avoid duplicate imports (same symbol name from different packages).
+
+=back
+
 =cut
+
