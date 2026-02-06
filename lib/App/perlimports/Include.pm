@@ -628,14 +628,24 @@ sub _maybe_get_new_include {
     my $orig      = $self->_include;
     return $orig if $statement eq $orig;    # quick exit
 
-    my $doc = PPI::Document->new( \$statement );
-    my $includes
-        = $doc->find( sub { $_[1]->isa('PPI::Statement::Include'); } );
+    # Prefix newlines to reproduce original's location
+    ## no critic (BuiltinFunctions::ProhibitLvalueSubstr)
+    my $doc = do {
+        my $line = $orig->line_number || 1;
+        my $text = "\n" x $line;
+        substr( $text, -1 ) = $statement;
+        PPI::Document->new( \$text, filename => $orig->logical_filename );
+    };
+    ## use critic
 
     # Cloning is necessary because the tokens in the found statement belong
     # to the document. When the document is destroyed, the tokens go with it.
     # With the clone, the duplicated tokens are independent of the doc.
-    my $rewrite = $includes->[0]->clone;
+    my $rewrite = do {
+        $doc->index_locations;
+        my $includes = $doc->find('Statement::Include');
+        $includes->[0]->clone;
+    };
 
     # If the -only- difference is some whitespace before the symbol list, we
     # keep the original statement. This is because perltidy often adds space
