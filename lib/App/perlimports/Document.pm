@@ -1018,23 +1018,10 @@ INCLUDE:
 
             $self->logger->info("resetting imports for |$elem|");
 
-            # Now reset found_imports so that we can account for any changes
-            # when processing includes further down the list.
-            my $doc = PPI::Document->new( \"$elem" );
-
-            if ( !$doc ) {
-                $self->logger->error("PPI could not parse $elem");
-            }
-            else {
-                my $new_include
-                    = $doc->find(
-                    sub { $_[1]->isa('PPI::Statement::Include') } );
-
-                $self->_reset_found_import(
-                    $include->module,
-                    _imports_for_include( $new_include->[0] )
-                );
-            }
+            $self->_reset_found_import(
+                $include->module,
+                _imports_for_include($elem)
+            );
         }
     }
 
