@@ -660,8 +660,7 @@ sub _maybe_get_new_include {
     #    this to
     #    "use Foo 123 qw( foo );"
 
-    my $orig = $a;
-    if ( _respace_include($orig) eq $b ) {
+    if ( _respace_include($a) eq $b ) {
         return $self->_include;
     }
 
