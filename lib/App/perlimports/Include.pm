@@ -617,12 +617,23 @@ sub _imports_remain {
     return keys %{$found} < $self->_explicit_export_count;
 }
 
+# Takes a string 'use SomeModule ...', returns a PPI:Statement:Include.
+# The returned obj could be one made from the string, if its different from
+# the existing one, else it is just the original.
 sub _maybe_get_new_include {
     my $self      = shift;
     my $statement = shift;
+
+    # quick exit for no change
+    return $self->_include if $statement eq $self->_include;
+
     my $doc       = PPI::Document->new( \$statement );
     my $includes
         = $doc->find( sub { $_[1]->isa('PPI::Statement::Include'); } );
+
+    # Cloning is necessary because the tokens in the found statement belong
+    # to the document. When the document is destroyed, the tokens go with it.
+    # With the clone, the duplicated tokens are independent of the doc.
     my $rewrite = $includes->[0]->clone;
 
     my $a = $self->_include . q{};
