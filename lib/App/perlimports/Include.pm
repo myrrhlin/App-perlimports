@@ -636,9 +636,6 @@ sub _maybe_get_new_include {
     # With the clone, the duplicated tokens are independent of the doc.
     my $rewrite = $includes->[0]->clone;
 
-    my $a = $self->_include . q{};
-    my $b = $rewrite . q{};
-
     # If the only difference is some whitespace before the quotes, we'll not
     # alter the include. This reduces some of the churn. What we want to avoid
     # is rewriting imports where the only change is to remove some whitespace
@@ -660,7 +657,7 @@ sub _maybe_get_new_include {
     #    this to
     #    "use Foo 123 qw( foo );"
 
-    if ( _respace_include($a) eq $b ) {
+    if ( "$rewrite" eq _respace_include( $self->_include ) ) {
         return $self->_include;
     }
 
@@ -669,20 +666,19 @@ sub _maybe_get_new_include {
     # We will return the rewritten include if a newline has been added or
     # removed. This is a formatting change that we *probably* want.
 
-    $a =~ s{\s}{}g;
-    $b =~ s{\s}{}g;
+    ( my $a = $self->_include . q{} ) =~ s{\s+}{}g;
+    ( my $b = $rewrite . q{} )        =~ s{\s+}{}g;
 
     return ( $a eq $b ) ? $self->_include : $rewrite;
 }
 
 # This function takes the original include and strips away the extra spaces
-# which might have been added as formatting by perltidy. This makes it easier
-# to compare the old include with the new and decide if we really need to
-# replace it.
+# which might have been added as formatting by perltidy.
 sub _respace_include {
     my $include = shift;
-    $include =~ s{\s+(qw|\()}{ $1};
-    return $include;
+    my $string  = "$include";
+    $string =~ s{\s+(qw|\()}{ $1};
+    return $string;
 }
 
 # If there's a different module in this document which has already imported
