@@ -623,11 +623,10 @@ sub _imports_remain {
 sub _maybe_get_new_include {
     my $self      = shift;
     my $statement = shift;
+    my $orig      = $self->_include;
+    return $orig if $statement eq $orig;    # quick exit
 
-    # quick exit for no change
-    return $self->_include if $statement eq $self->_include;
-
-    my $doc       = PPI::Document->new( \$statement );
+    my $doc = PPI::Document->new( \$statement );
     my $includes
         = $doc->find( sub { $_[1]->isa('PPI::Statement::Include'); } );
 
@@ -636,29 +635,20 @@ sub _maybe_get_new_include {
     # With the clone, the duplicated tokens are independent of the doc.
     my $rewrite = $includes->[0]->clone;
 
-    # If the only difference is some whitespace before the quotes, we'll not
-    # alter the include. This reduces some of the churn. What we want to avoid
-    # is rewriting imports where the only change is to remove some whitespace
-    # padding which was specifically added by perltidy. If we keep removing
-    # changes made by perltidy this tool will be unfit to be used as a linter,
-    # because it will either force a tidy after every run or it will introduce
-    # tidying errors.
-    #
-    # So "use Foo     qw( bar );" should be considered equivalent to
-    #    "use Foo qw( bar );" because it might be in the context of
-    #
+    # If the -only- difference is some whitespace before the symbol list, we
+    # keep the original statement. This is because perltidy often adds space
+    # to align successive import lists, and we don't want to fight. So:
     #    use AAAAAAA qw( thing );
-    #    use Foo     qw( bar );
-    #    use FFFFFFF qw( other );
-    #
-    #    If the existing include is something like
-    #    "use Foo    123 qw( foo );"
-    #    we should probably rewrite that since perltidy will likely rewrite
-    #    this to
-    #    "use Foo 123 qw( foo );"
+    #    use Foo     qw( bar );     <== leave this spacing alone
 
-    if ( "$rewrite" eq _respace_include( $self->_include ) ) {
-        return $self->_include;
+    # strip away extra spaces before the symbol list..
+    my $untidied_include = do {
+        my $string = "$orig";
+        $string =~ s{\s+(qw|\()}{ $1};
+        $string;
+    };
+    if ( "$rewrite" eq $untidied_include ) {
+        return $orig;
     }
 
     return $rewrite if $self->_tidy_whitespace;
@@ -666,19 +656,10 @@ sub _maybe_get_new_include {
     # We will return the rewritten include if a newline has been added or
     # removed. This is a formatting change that we *probably* want.
 
-    ( my $a = $self->_include . q{} ) =~ s{\s+}{}g;
-    ( my $b = $rewrite . q{} )        =~ s{\s+}{}g;
+    ( my $a = $orig . q{} )    =~ s{\s+}{}g;
+    ( my $b = $rewrite . q{} ) =~ s{\s+}{}g;
 
-    return ( $a eq $b ) ? $self->_include : $rewrite;
-}
-
-# This function takes the original include and strips away the extra spaces
-# which might have been added as formatting by perltidy.
-sub _respace_include {
-    my $include = shift;
-    my $string  = "$include";
-    $string =~ s{\s+(qw|\()}{ $1};
-    return $string;
+    return ( $a eq $b ) ? $orig : $rewrite;
 }
 
 # If there's a different module in this document which has already imported
