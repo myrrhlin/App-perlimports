@@ -939,6 +939,7 @@ INCLUDE:
         );
         my $elem;
         try {
+            # may return the original include!
             $elem = $e->formatted_ppi_statement;
         }
         catch {
@@ -976,6 +977,12 @@ INCLUDE:
 
                 next INCLUDE;
             }
+        }
+
+        # if the 'new' statement is actually just the original, skip!
+        if ( $elem == $include ) {
+            $processed{ $include->module } = 1;
+            next INCLUDE;
         }
 
         ## no critic (Subroutines::ProhibitCallsToUnexportedSubs)
